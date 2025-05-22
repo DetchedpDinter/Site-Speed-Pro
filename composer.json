@@ -1,0 +1,9 @@
+{
+  "name": "shady/site-speed-pro",
+  "autoload": {
+    "psr-4": {
+      "SiteSpeedPro\\": "src/"
+    }
+  },
+  "require": {}
+}
