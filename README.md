@@ -24,3 +24,9 @@ It is built for speed, automation, and zero configuration.
 
    ```bash
    composer install
+
+---
+
+## 👨‍💻 Author
+
+Built by [Sandip Mishra](https://github.com/DetchedpDinter)
