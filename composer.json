@@ -2,8 +2,10 @@
   "name": "shady/site-speed-pro",
   "autoload": {
     "psr-4": {
-      "SiteSpeedPro\\": "src/"
+      "Sandip\\SiteSpeedPro\\": "src/"
     }
   },
-  "require": {}
+  "require": {
+    "matthiasmullie/minify": "^1.3"
+  }
 }

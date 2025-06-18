@@ -1,0 +1,6 @@
+/vendor/
+/cache/
+/*.log
+*.zip
+.DS_Store
+.env

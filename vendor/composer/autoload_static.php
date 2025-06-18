@@ -9,14 +9,27 @@ class ComposerStaticInit3ad74493d3c5ff08068f38ad7711d726
     public static $prefixLengthsPsr4 = array (
         'S' => 
         array (
-            'SiteSpeedPro\\' => 13,
+            'Sandip\\SiteSpeedPro\\' => 20,
+        ),
+        'M' => 
+        array (
+            'MatthiasMullie\\PathConverter\\' => 29,
+            'MatthiasMullie\\Minify\\' => 22,
         ),
     );
 
     public static $prefixDirsPsr4 = array (
-        'SiteSpeedPro\\' => 
+        'Sandip\\SiteSpeedPro\\' => 
         array (
             0 => __DIR__ . '/../..' . '/src',
+        ),
+        'MatthiasMullie\\PathConverter\\' => 
+        array (
+            0 => __DIR__ . '/..' . '/matthiasmullie/path-converter/src',
+        ),
+        'MatthiasMullie\\Minify\\' => 
+        array (
+            0 => __DIR__ . '/..' . '/matthiasmullie/minify/src',
         ),
     );
 

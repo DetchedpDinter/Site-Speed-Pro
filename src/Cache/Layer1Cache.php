@@ -2,14 +2,18 @@
 
 namespace Sandip\SiteSpeedPro\Cache;
 
+use Sandip\SiteSpeedPro\Utils\Logger;
+
 defined('ABSPATH') or die('No script kiddies please!');
 
 class Layer1Cache
 {
     private static bool $should_cache = true;
     private static bool $cache_hit = false;
-    private static bool $skip_logged = false;
 
+    /**
+     * Initialize hooks for cache handling and invalidation.
+     */
     public static function init()
     {
         add_action('template_redirect', [self::class, 'handle_cache'], 0);
@@ -22,126 +26,145 @@ class Layer1Cache
         add_action('transition_post_status', [self::class, 'invalidate_cache_on_status_change'], 10, 3);
     }
 
+    /**
+     * Handles serving the cache or starting output buffering for new cache generation.
+     * Skips caching for admin, ajax, logged-in users, non-GET requests, static assets, or REST API.
+     *
+     * @return void
+     */
     public static function handle_cache()
     {
         $uri = $_SERVER['REQUEST_URI'];
 
-        if (is_admin() || (defined('DOING_AJAX') && DOING_AJAX)) {
+        if (is_admin() || (defined('DOING_AJAX') && DOING_AJAX) || (defined('REST_REQUEST') && REST_REQUEST) || is_user_logged_in() || $_SERVER['REQUEST_METHOD'] !== 'GET' || preg_match('/\.(ico|png|jpg|jpeg|gif|css|js|svg)$/i', $uri)) {
             self::$should_cache = false;
-            error_log('[SiteSpeedPro] Skipping caching: admin/ajax');
-            return;
+            return; // No logging here to keep logs clean and minimal
         }
-
-        if (defined('REST_REQUEST') && REST_REQUEST) {
-            self::$should_cache = false;
-            error_log('[SiteSpeedPro] Skipping caching: REST API request');
-            return;
-        }
-
-        if (is_user_logged_in()) {
-            self::$should_cache = false;
-            error_log('[SiteSpeedPro] Skipping caching: User logged in');
-            return;
-        }
-
-        if (preg_match('/\.(ico|png|jpg|jpeg|gif|css|js|svg)$/i', $uri)) {
-            self::$should_cache = false;
-            error_log('[SiteSpeedPro] Skipping caching: Static asset');
-            return;
-        }
-
-        if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
-            self::$should_cache = false;
-            error_log('[SiteSpeedPro] Skipping caching: Non-GET request');
-            return;
-        }
-
-        // Now proceed to check cache and start buffering...
 
         $key = self::get_cache_key();
         $cached = get_transient($key);
 
         if ($cached !== false) {
             header('X-Cache: HIT');
-            error_log("[SiteSpeedPro] Cache HIT for: {$uri}");
+            Logger::info("Cache HIT for URI: {$uri}");
             echo $cached;
             self::$cache_hit = true;
             exit;
         }
 
         header('X-Cache: MISS');
-        error_log("[SiteSpeedPro] Cache MISS for: {$uri}");
+        Logger::info("Cache MISS for URI: {$uri}");
         ob_start();
         self::$should_cache = true;
     }
 
+    /**
+     * Save the buffered output as transient cache if applicable.
+     *
+     * @return void
+     */
     public static function maybe_save_cache()
     {
         if (!self::$should_cache || self::$cache_hit) {
-            // Don't save cache if we decided not to cache or we already served from cache
             return;
         }
 
         if (!ob_get_level()) {
-            error_log('[SiteSpeedPro] No output buffer active. Skipping cache save.');
+            Logger::warning('No output buffer active; skipping cache save.');
             return;
         }
 
         $content = ob_get_contents();
 
         if (empty($content)) {
-            error_log('[SiteSpeedPro] Output buffer empty. Not saving.');
+            Logger::warning('Output buffer empty; not saving cache.');
             ob_end_clean();
             return;
         }
 
         ob_end_clean();
 
-        $key = self::get_cache_key();
-
-        // Double-check: Do NOT save cache if admin or ajax (extra safeguard)
+        // Double check to avoid caching admin/ajax content
         if (is_admin() || (defined('DOING_AJAX') && DOING_AJAX)) {
-            error_log('[SiteSpeedPro] Refusing to save cache for admin or ajax.');
             echo $content;
             return;
         }
 
+        $key = self::get_cache_key();
         set_transient($key, $content, 12 * HOUR_IN_SECONDS);
 
-        error_log("[SiteSpeedPro] Saved cache for: {$_SERVER['REQUEST_URI']}");
+        Logger::info('Cache saved for URI: ' . $_SERVER['REQUEST_URI']);
         echo $content;
     }
 
+    /**
+     * Generate a cache key based on the current request URI.
+     *
+     * @return string Cache key.
+     */
     private static function get_cache_key(): string
     {
         return 'page_cache_' . md5($_SERVER['REQUEST_URI']);
     }
 
+    /**
+     * Generate a cache key based on a specific URL.
+     *
+     * @param string $url URL to generate key for.
+     * @return string Cache key.
+     */
     private static function get_cache_key_by_url(string $url): string
     {
         return 'page_cache_' . md5(parse_url($url, PHP_URL_PATH) ?? '/');
     }
 
+    /**
+     * Invalidate cache for a specific post and related pages.
+     *
+     * @param int $post_id Post ID.
+     * @return void
+     */
     public static function invalidate_cache(int $post_id)
     {
-        if (wp_is_post_revision($post_id)) return;
+        if (wp_is_post_revision($post_id)) {
+            return;
+        }
 
         $url = get_permalink($post_id);
-        if (!$url) return;
+        if (!$url) {
+            return;
+        }
 
         $key = self::get_cache_key_by_url($url);
         delete_transient($key);
-        error_log("[SiteSpeedPro] Cache invalidated for Post ID {$post_id} - URL: {$url}");
+
+        Logger::info("Cache invalidated for Post ID {$post_id} - URL: {$url}");
 
         self::invalidate_related_pages($post_id);
     }
 
+    /**
+     * Invalidate cache if post status changes.
+     *
+     * @param string $new_status New post status.
+     * @param string $old_status Old post status.
+     * @param object $post Post object.
+     * @return void
+     */
     public static function invalidate_cache_on_status_change(string $new_status, string $old_status, $post)
     {
-        if ($new_status === $old_status || wp_is_post_revision($post->ID)) return;
+        if ($new_status === $old_status || wp_is_post_revision($post->ID)) {
+            return;
+        }
         self::invalidate_cache($post->ID);
     }
 
+    /**
+     * Invalidate caches for related pages: homepage, archives, taxonomies, author archives.
+     *
+     * @param int $post_id Post ID.
+     * @return void
+     */
     private static function invalidate_related_pages(int $post_id)
     {
         $urls = [];
@@ -149,7 +172,7 @@ class Layer1Cache
         // Homepage
         $urls[] = home_url('/');
 
-        // Post type archive (if public CPT)
+        // Post type archive (for public CPT)
         $post_type = get_post_type($post_id);
         if ($post_type && $post_type !== 'post' && post_type_exists($post_type)) {
             $archive_link = get_post_type_archive_link($post_type);
@@ -189,24 +212,15 @@ class Layer1Cache
         foreach (array_filter($urls) as $url) {
             $key = self::get_cache_key_by_url($url);
             delete_transient($key);
-            error_log("[SiteSpeedPro] Related page cache invalidated: {$url}");
+            Logger::info("Related page cache invalidated: {$url}");
         }
     }
 
-    public static function render_purge_page()
-    {
-        if (isset($_POST['purge_cache']) && check_admin_referer('purge_cache_action')) {
-            self::purge_all_cache();
-            echo '<div class="updated"><p>All cache cleared.</p></div>';
-        }
-
-        echo '<div class="wrap"><h1>Purge Cache</h1>';
-        echo '<form method="POST">';
-        wp_nonce_field('purge_cache_action');
-        echo '<p><input type="submit" name="purge_cache" class="button button-primary" value="Clear All Cache"></p>';
-        echo '</form></div>';
-    }
-
+    /**
+     * Purge all page caches (all transients with the prefix).
+     *
+     * @return void
+     */
     public static function purge_all_cache()
     {
         global $wpdb;
@@ -219,6 +233,6 @@ class Layer1Cache
             )
         );
 
-        error_log('[SiteSpeedPro] All page cache cleared.');
+        Logger::info('All page cache cleared.');
     }
 }

@@ -25,33 +25,24 @@ class Plugin
 {
     public static function init()
     {
-        if (self::is_apache()) {
-            \Sandip\SiteSpeedPro\Cache\Layer2Cache::init();
-            add_action('admin_menu', function () {
-                add_submenu_page(
-                    'tools.php',
-                    __('Purge SiteSpeedPro Cache', 'site-speed-pro'),
-                    __('SiteSpeedPro Cache', 'site-speed-pro'),
-                    'manage_options',
-                    'site-speedpro-cache-layer2',
-                    [\Sandip\SiteSpeedPro\Cache\Layer2Cache::class, 'render_purge_page']
-                );
-            });
-        } else {
-            \Sandip\SiteSpeedPro\Cache\Layer1Cache::init();
-            add_action('admin_menu', function () {
-                add_submenu_page(
-                    'tools.php',
-                    __('Purge SiteSpeedPro Cache', 'site-speed-pro'),
-                    __('SiteSpeedPro Cache', 'site-speed-pro'),
-                    'manage_options',
-                    'site-speedpro-cache-layer1',
-                    [\Sandip\SiteSpeedPro\Cache\Layer1Cache::class, 'render_purge_page']
-                );
-            });
+        // Initialize Lazy Load first, only frontend & non-logged-in users
+        if (!is_admin() && !is_user_logged_in()) {
+            \Sandip\SiteSpeedPro\Optimization\LazyLoad::init();
         }
 
-        // Show notice only once after activation
+        // Init only the correct caching layer (but no admin page here anymore)
+        if (self::is_apache()) {
+            \Sandip\SiteSpeedPro\Cache\Layer2Cache::init();
+        } else {
+            \Sandip\SiteSpeedPro\Cache\Layer1Cache::init();
+        }
+
+        \Sandip\SiteSpeedPro\Image\ImageOptimizer::init();
+        \Sandip\SiteSpeedPro\Optimization\AssetMinifier::init();
+        \Sandip\SiteSpeedPro\Optimization\JavaScriptDelay::init();
+        \Sandip\SiteSpeedPro\Admin\ToolsPage::init();
+        \Sandip\SiteSpeedPro\Database\DatabaseCleaner::init();
+
         add_action('admin_notices', [self::class, 'maybe_show_activation_notice']);
     }
 
@@ -62,18 +53,23 @@ class Plugin
         }
 
         if (get_option('sitespeedpro_show_cache_method_notice') === '1') {
+            $message = '<strong>🎉 SiteSpeedPro is now active!</strong><br>';
+
             if (self::is_apache()) {
-                echo '<div class="notice notice-success is-dismissible"><p><strong>SiteSpeedPro:</strong> Apache server detected. Using Layer 2 (Static HTML Cache).</p></div>';
+                $message .= 'Static HTML caching is enabled for blazing-fast page loads.';
             } else {
-                echo '<div class="notice notice-warning is-dismissible"><p><strong>SiteSpeedPro:</strong> Non-Apache server detected. Using Layer 1 (PHP Transient Cache).</p></div>';
+                $message .= 'Smart dynamic caching is enabled to speed up your website instantly.';
             }
 
-            // Delete the flag so it only shows once
+            $message .= '<br>🚀 Optimize your site further under <strong>Tools → Site Speed Pro</strong>.';
+
+            echo '<div class="notice notice-success is-dismissible"><p>' . $message . '</p></div>';
+
             delete_option('sitespeedpro_show_cache_method_notice');
         }
     }
 
-    private static function is_apache(): bool
+    public static function is_apache(): bool
     {
         return isset($_SERVER['SERVER_SOFTWARE']) && stripos($_SERVER['SERVER_SOFTWARE'], 'apache') !== false;
     }
